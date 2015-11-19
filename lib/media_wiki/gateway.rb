@@ -68,7 +68,7 @@ module MediaWiki
     private
 
     # Fetch token (type 'delete', 'edit', 'email', 'import', 'move', 'protect')
-    def get_token(type, page_titles)
+    def get_token(type, page_titles = nil)
       res = send_request(
         'action'  => 'query',
         'meta'    => 'tokens'

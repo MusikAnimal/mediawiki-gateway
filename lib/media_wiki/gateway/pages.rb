@@ -7,10 +7,11 @@ module MediaWiki
       # Massmessage, putting this here just because... because
       def mass_message(spamlist, subject, message)
         send_request(
-          'action' => 'massmessage',
+          'action'   => 'massmessage',
           'spamlist' => spamlist,
-          'subject' => subject,
-          'message' => message
+          'subject'  => subject,
+          'message'  => message,
+          'token'    => get_token('massmessage')
         )
       end
 
@@ -109,7 +110,9 @@ module MediaWiki
           'token'   => get_token('edit', title)
         }
 
-        if options[:bot] != false && (@options[:bot] || options[:bot])
+        if options[:bot] == false
+          options.delete(:bot)
+        elsif @options[:bot] || options[:bot]
           form_data.update('bot' => '1', 'assert' => 'bot')
         end
 
@@ -125,23 +128,7 @@ module MediaWiki
       #
       # Same options as create
       def edit(title, content, options = {})
-        form_data = options.merge({
-          action:  'edit',
-          title:   title,
-          text:    content,
-          summary: options[:summary] || '',
-          token:   get_token('edit', title)
-        })
-
-        if @options[:bot] || options[:bot]
-          form_data.update(bot: '1', assert: 'bot')
-        end
-
-        form_data[:minor]    = '1' if options[:minor]
-        form_data[:notminor] = '1' if options[:minor] == false || options[:notminor]
-        form_data[:section]  = options[:section].to_s if options[:section]
-
-        send_request(form_data)
+        create(title, content, { overwrite: true }.merge(options))
       end
 
       # Protect/unprotect a page
