@@ -123,13 +123,36 @@ module MediaWiki
     #
     # Returns array of XML document and query continue parameter.
     def make_api_request(form_data, continue_xpath = nil, retry_count = 1)
+      # If this is our first try, then reset our warnings
+      @warnings = [] if retry_count == 1
+
+      if retry_count > @options[:retry_count]
+        raise MediaWiki::Exception.new("Retries exceeded: Terminating after #{retry_count - 1} retries. Previous warnings:\n#{@warnings.join("\n\n")}")
+      end
+
       form_data.update('format' => 'xml', 'maxlag' => @options[:maxlag])
 
-      http_send(@wiki_url, form_data, @headers.merge(cookies: @cookies)) { |response, &block|
-        if response.code == 503 && retry_count < @options[:retry_count]
-          log.warn("503 Service Unavailable: #{response.body}.  Retry in #{@options[:retry_delay]} seconds.")
-          sleep(@options[:retry_delay])
-          make_api_request(form_data, continue_xpath, retry_count + 1)
+      http_send(@wiki_url, form_data, @headers.merge(cookies: @cookies)) do |response|
+        if response.code == 503
+          retry_delay = @options[:retry_delay]
+          if response.headers.has_key?(:retry_after)
+            retry_delay = [@options[:retry_delay], response.headers[:retry_after].to_i].max
+          end
+
+          # If it's a maxlag error, parse the maxlag message to get the
+          # maxlag, since on Wikipedia they don't pass the maxlag through the
+          # header.
+          match = response.body.match /Retry in (\d+) seconds/
+          if match
+            retry_delay = [retry_delay, match[1].to_i].max
+          end
+
+          warning = "503 Service Unavailable: #{response.body}.  Retry in #{retry_delay} seconds."
+          warning += " headers.Retry-After=#{response.headers[:retry_after]}" if response.headers.has_key?(:retry_after)
+          @warnings.push(warning)
+          log.warn(warning)
+          sleep(retry_delay)
+          return make_api_request(form_data, continue_xpath, retry_count + 1)
         end
 
         # Check response for errors and return XML
@@ -137,7 +160,42 @@ module MediaWiki
           raise MediaWiki::Exception.new("Bad response: #{response}")
         end
 
-        doc = get_response(response.dup)
+        # Parse the XML (raises exception if invalid XML)
+        response = MediaWiki::Response.new(response)
+
+        # Note: Although the documentation suggests that a maxlag error should
+        # return HTTP 503, in practice some wikis (such as en.wikipedia.org)
+        # actually return HTTP 200 with an XML (as opposed to text/plain)
+        # response.
+        if response.has_error? && response.error_code == 'maxlag'
+          retry_delay = @options[:retry_delay]
+
+          # For Wikipedia, it seems like this header value is always 5, so
+          # it's not useful.
+          if response.headers.has_key?(:retry_after)
+            retry_delay = [retry_delay, response.headers[:retry_after].to_i].max
+          end
+
+          # Parse the maxlag message to get the maxlag, since on Wikipedia
+          # they don't pass the maxlag through the header.
+          match = response.error_info.match /(\d+) seconds lagged/
+          if match
+            retry_delay = [retry_delay, match[1].to_i].max
+          end
+
+          warning = "maxlag exceeded: #{response.body}.  Retry in #{retry_delay} seconds."
+          warning += " headers.Retry-After=#{response.headers[:retry_after]}" if response.headers.has_key?(:retry_after)
+          @warnings.push(warning)
+          log.warn(warning)
+          sleep(retry_delay)
+          return make_api_request(form_data, continue_xpath, retry_count + 1)
+        end
+
+        # Handle any errors or warnings that were included in the response
+        check_response(response)
+
+        doc = response.doc
+        log.debug("RES: #{doc}")
 
         # login and createaccount actions require a second request with a token received on the first request
         if %w[login createaccount].include?(action = form_data['action'])
@@ -166,10 +224,11 @@ module MediaWiki
 
         return [doc, (continue_xpath && doc.elements['query-continue']) ?
           REXML::XPath.first(doc, continue_xpath) : nil]
-      }
+      end
     end
 
-    # Execute the HTTP request using either GET or POST as appropriate
+    # Execute the HTTP request using either GET or POST as appropriate.
+    # @yieldparam response
     def http_send url, form_data, headers, &block
       opts = @http_options.merge(url: url, headers: headers, verify_ssl: false)
       opts[:method] = form_data['action'] == 'query' ? :get : :post
@@ -177,35 +236,37 @@ module MediaWiki
 
       log.debug("#{opts[:method].upcase}: #{form_data.inspect}, #{@cookies.inspect}")
 
-      RestClient::Request.execute(opts, &block)
-    end
+      RestClient::Request.execute(opts) do |response, request, result|
+        # When a block is passed to RestClient::Request.execute, we must
+        # manually handle response codes ourselves. If no block is passed,
+        # then redirects are automatically handled, but HTTP errors also
+        # result in exceptions being raised. For now, we manually check for
+        # HTTP 503 errors (see: #make_api_request), but we must also manually
+        # handle HTTP redirects.
+        if [301, 302, 307].include?(response.code) && request.method == :get
+          response = response.follow_redirection(request, result)
+        end
 
-    # Get API XML response
-    # If there are errors or warnings, raise APIError
-    # Otherwise return XML root
-    def get_response(res)
-      begin
-        res = res.force_encoding('UTF-8') if res.respond_to?(:force_encoding)
-        doc = REXML::Document.new(res).root
-      rescue REXML::ParseException
-        raise MediaWiki::Exception.new('Response is not XML.  Are you sure you are pointing to api.php?')
+        block.call(response)
       end
 
-      log.debug("RES: #{doc}")
+    end
 
-      unless %w[api mediawiki].include?(doc.name)
+    # 1. Raises exception if repsonse is not a valid MediaWiki XML response
+    # 2. Raises exception if response contains errors
+    # 3. Prints warnings
+    def check_response(res)
+      unless %w[api mediawiki].include?(res.doc.name)
         raise MediaWiki::Exception.new("Response does not contain Mediawiki API XML: #{res}")
       end
 
-      if error = doc.elements['error']
-        raise APIError.new(*error.attributes.values_at(*%w[code info]))
+      if res.has_error?
+        raise APIError.new(*res.error.attributes.values_at(*%w[code info]))
       end
 
-      if warnings = doc.elements['warnings']
-        warning("API warning: #{warnings.children.map(&:text).join(', ')}")
+      if res.has_warnings?
+        warning("API warning: #{res.warnings.children.map(&:text).join(', ')}")
       end
-
-      doc
     end
 
     def validate_options(options, valid_options)
