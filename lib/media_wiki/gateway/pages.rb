@@ -4,6 +4,16 @@ module MediaWiki
 
     module Pages
 
+      # Massmessage, putting this here just because... because
+      def mass_message(spamlist, subject, message)
+        send_request(
+          'action' => 'massmessage',
+          'spamlist' => spamlist,
+          'subject' => subject,
+          'message' => message
+        )
+      end
+
       # Fetch MediaWiki page in MediaWiki format.  Does not follow redirects.
       #
       # [page_title] Page title to fetch
