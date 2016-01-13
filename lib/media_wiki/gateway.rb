@@ -127,7 +127,7 @@ module MediaWiki
       @warnings = [] if retry_count == 1
 
       if retry_count > @options[:retry_count]
-        raise MediaWiki::Exception.new("Retries exceeded: Terminating after #{retry_count - 1} retries. Previous warnings:\n#{@warnings.join("\n\n")}")
+        raise MediaWiki::Exception.new("Retries exceeded: Terminating after #{retry_count - 1} retries")
       end
 
       form_data.update('format' => 'xml', 'maxlag' => @options[:maxlag])
@@ -186,7 +186,7 @@ module MediaWiki
           warning = "maxlag exceeded: #{response.body}.  Retry in #{retry_delay} seconds."
           warning += " headers.Retry-After=#{response.headers[:retry_after]}" if response.headers.has_key?(:retry_after)
           @warnings.push(warning)
-          log.warn(warning)
+          log.debug(warning)
           sleep(retry_delay)
           return make_api_request(form_data, continue_xpath, retry_count + 1)
         end
