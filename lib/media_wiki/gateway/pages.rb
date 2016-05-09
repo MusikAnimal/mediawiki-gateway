@@ -100,28 +100,27 @@ module MediaWiki
       # * [:token] Use this existing edit token instead requesting a new one (useful for bulk loads)
       # * [:minor] Mark this edit as "minor" if true, mark this edit as "major" if false, leave major/minor status by default if not specified
       # * [:notminor] Mark this edit as "major" if true
-      # * [:bot] Set the bot parameter (see http://www.mediawiki.org/wiki/API:Edit#Parameters).  Defaults to false.
+      # * [:bot] Set the bot parameter (see http://www.mediawiki.org/wiki/API:Edit#Parameters). Defaults to false.
       def create(title, content, options = {})
         form_data = {
           'action'  => 'edit',
           'title'   => title,
           'text'    => content,
-          'summary' => options[:summary] || '',
+          'summary' => options.delete(:summary) || '',
           'token'   => get_token('edit', title)
         }
 
-        if options[:bot] == false
-          options.delete(:bot)
-        elsif @options[:bot] || options[:bot]
+        if @options[:bot] || options.delete(:bot)
           form_data.update('bot' => '1', 'assert' => 'bot')
         end
 
-        form_data['minor']      = '1' if options[:minor]
-        form_data['notminor']   = '1' if options[:minor] == false || options[:notminor]
-        form_data['createonly'] = '' unless options[:overwrite]
-        form_data['section']    = options[:section].to_s if options[:section]
+        minor = options.delete(:minor)
+        form_data['minor']      = '1' if minor
+        form_data['notminor']   = '1' if minor == false || options.delete(:notminor)
+        form_data['createonly'] = '' unless options.delete(:overwrite)
+        form_data['section']    = options.delete(:section).to_s if options[:section]
 
-        send_request(form_data)
+        send_request(form_data.merge(options))
       end
 
       # Edit page

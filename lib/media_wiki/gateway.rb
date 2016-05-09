@@ -285,7 +285,6 @@ module MediaWiki
     def warning(msg)
       raise APIError.new('warning', msg) unless @options[:ignorewarnings]
       log.warn(msg)
-      false
     end
 
   end
