@@ -178,12 +178,12 @@ module MediaWiki
 
           # Parse the maxlag message to get the maxlag, since on Wikipedia
           # they don't pass the maxlag through the header.
-          match = response.error_info.match /(\d+) seconds lagged/
+          match = response.error_info.match /(\d+).*? seconds lagged/
           if match
             retry_delay = [retry_delay, match[1].to_i].max
           end
 
-          warning = "maxlag exceeded: #{response.body}.  Retry in #{retry_delay} seconds."
+          warning = "maxlag exceeded: #{response.body}. Retry in #{retry_delay} seconds."
           warning += " headers.Retry-After=#{response.headers[:retry_after]}" if response.headers.has_key?(:retry_after)
           @warnings.push(warning)
           log.debug(warning)
