@@ -8,6 +8,17 @@ module MediaWiki
   class Gateway
 
     USER_AGENT = "#{self}/#{VERSION}"
+    META_TOKEN_TYPES = %w[
+      createaccount
+      csrf
+      deleteglobalaccount
+      login
+      patrol
+      rollback
+      setglobalaccountstatus
+      userrights
+      watch
+    ]
 
     class << self
 
@@ -69,12 +80,20 @@ module MediaWiki
 
     # Fetch token (type 'delete', 'edit', 'email', 'import', 'move', 'protect')
     def get_token(type, page_titles = nil)
-      res = send_request(
+
+      params = {
         'action'  => 'query',
         'meta'    => 'tokens'
-      )
+      }
 
-      unless token = res.elements['query/tokens'].attributes["csrftoken"]
+      if META_TOKEN_TYPES.include?(type)
+        params.merge!('type' => type)
+      end
+
+      res = send_request(params)
+      tokens = res.elements['query/tokens'].attributes
+
+      unless token = tokens['logintoken'] || tokens['csrftoken'] || tokens['token']
         raise Unauthorized.new "User is not permitted to perform this operation: #{type}"
       end
 
@@ -131,6 +150,15 @@ module MediaWiki
       end
 
       form_data.update('format' => 'xml', 'maxlag' => @options[:maxlag])
+
+      # some actions require a second request with a token received on the first request
+      if META_TOKEN_TYPES.include?(action = form_data['action'])
+        if action == 'login'
+          form_data['lgtoken'] = get_token('login')
+        else
+          form_data['token'] = get_token(action)
+        end
+      end
 
       http_send(@wiki_url, form_data, @headers.merge(cookies: @cookies)) do |response|
         if response.code == 503
@@ -197,30 +225,7 @@ module MediaWiki
         doc = response.doc
         log.debug("RES: #{doc}")
 
-        # login and createaccount actions require a second request with a token received on the first request
-        if %w[login createaccount].include?(action = form_data['action'])
-          action_result = doc.elements[action].attributes['result']
-          @cookies.update(response.cookies)
-
-          case action_result.downcase
-            when 'success'
-              return [doc, false]
-            when 'needtoken'
-              token = doc.elements[action].attributes['token']
-
-              if action == 'login'
-                return make_api_request(form_data.merge('lgtoken' => token))
-              elsif action == 'createaccount'
-                return make_api_request(form_data.merge('token' => token))
-              end
-            else
-              if action == 'login'
-                raise Unauthorized.new("Login failed: #{action_result}")
-              elsif action == 'createaccount'
-                raise Unauthorized.new("Account creation failed: #{action_result}")
-              end
-          end
-        end
+        @cookies.update(response.cookies)
 
         return [doc, (continue_xpath && doc.elements['query-continue']) ?
           REXML::XPath.first(doc, continue_xpath) : nil]
