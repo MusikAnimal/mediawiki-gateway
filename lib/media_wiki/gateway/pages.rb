@@ -116,10 +116,12 @@ module MediaWiki
           form_data.update('bot' => '1', 'assert' => 'bot')
         end
 
-        form_data['minor']      = '1' if options[:minor]
-        form_data['notminor']   = '1' if options[:minor] == false || options[:notminor]
-        form_data['createonly'] = '' unless options[:overwrite]
-        form_data['section']    = options[:section].to_s if options[:section]
+        form_data['minor']          = '1' if options[:minor]
+        form_data['notminor']       = '1' if options[:minor] == false || options[:notminor]
+        form_data['createonly']     = '' unless options[:overwrite]
+        form_data['section']        = options[:section].to_s if options[:section]
+        form_data['basetimestamp']  = options[:basetimestamp] if options[:basetimestamp]
+        form_data['starttimestamp'] = options[:starttimestamp] if options[:starttimestamp]
 
         send_request(form_data)
       end
