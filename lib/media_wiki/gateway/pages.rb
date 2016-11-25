@@ -118,10 +118,17 @@ module MediaWiki
 
         form_data['minor']          = '1' if options[:minor]
         form_data['notminor']       = '1' if options[:minor] == false || options[:notminor]
+        form_data['watch']          = '1' if options[:watch]
+        form_data['unwatch']        = '1' if options[:unwatch]
+        form_data['redirect']       = '1' if options[:redirect]
         form_data['createonly']     = '' unless options[:overwrite]
         form_data['section']        = options[:section].to_s if options[:section]
         form_data['basetimestamp']  = options[:basetimestamp] if options[:basetimestamp]
         form_data['starttimestamp'] = options[:starttimestamp] if options[:starttimestamp]
+        form_data['prependtext']    = options[:prependtext] if options[:prependtext]
+        form_data['appendtext']     = options[:appendtext] if options[:appendtext]
+        form_data['undo']           = options[:undo] if options[:undo]
+        form_data['undoafter']      = options[:undoafter] if options[:undoafter]
 
         send_request(form_data)
       end
