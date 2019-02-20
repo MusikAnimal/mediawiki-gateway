@@ -23,13 +23,14 @@ module MediaWiki
       # Returns content of page as string, nil if the page does not exist.
       def get(page_title, options = {})
         page = send_request(options.merge(
-          'action' => 'query',
-          'prop'   => 'revisions',
-          'rvprop' => 'content',
-          'titles' => page_title
+          'action'  => 'query',
+          'prop'    => 'revisions',
+          'rvprop'  => 'content',
+          'rvslots' => '*',
+          'titles'  => page_title
         )).elements['query/pages/page']
 
-        page.elements['revisions/rev'].text || '' if valid_page?(page)
+        page.elements['revisions/rev/slots/slot'].text || '' if valid_page?(page)
       end
 
       # Fetch latest revision ID of a MediaWiki page.  Does not follow redirects.
